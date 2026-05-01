@@ -19,9 +19,8 @@ CR_EMAIL = os.getenv("CR_EMAIL", "cr_email@example.com")
 
 # 2. OCR/TEXT EXTRACTION FROM PDF
 ROW_PATTERN = re.compile(
-    r"(?P<roll_no>[A-Za-z0-9]{8,})\s+(?P<name>[A-Za-z][A-Za-z .'-]*)\s+(?P<marks>Ab|AB|ab|\d+(?:\.\d+)?)\s*$"
+    r"(?P<roll_no>\d{6,})\s+(?P<name>[A-Za-z][A-Za-z .'-]*)\s+(?P<marks>Ab|AB|ab|\d+(?:\.\d+)?)"
 )
-
 
 def parse_mark(value: str) -> float:
     """Convert marks to float; treat Ab/blank as 0."""
@@ -49,22 +48,34 @@ def extract_rows_from_text(raw_text: str) -> List[Dict[str, str]]:
     return results
 
 
-def extract_marks_from_pdf(pdf_path: str) -> List[Dict[str, str]]:
-    """Read a PDF and extract roll_no, name and marks from all pages."""
-    print(f"--- Processing: {os.path.basename(pdf_path)} ---")
-    reader = PdfReader(pdf_path)
+import pdfplumber
+import pytesseract
+from PIL import Image
 
-    all_rows: List[Dict[str, str]] = []
-    for page in reader.pages:
-        page_text = page.extract_text() or ""
-        all_rows.extend(extract_rows_from_text(page_text))
+def extract_marks_from_pdf(pdf_path):
+    print(f"--- Processing: {pdf_path} ---")
+
+    all_rows = []
+
+    with pdfplumber.open(pdf_path) as pdf:
+        for page in pdf.pages:
+
+            # Try normal text extraction first
+            text = page.extract_text()
+
+            if not text:
+                # Fallback → OCR
+                img = page.to_image(resolution=300).original
+                text = pytesseract.image_to_string(img)
+
+            print("\nOCR/Text Output:\n", text)
+
+            rows = extract_rows_from_text(text)
+            all_rows.extend(rows)
 
     if not all_rows:
-        raise ValueError(
-            f"No valid rows parsed from {pdf_path}. Ensure the PDF has selectable text or OCR output."
-        )
+        raise ValueError("Still no rows found. OCR couldn't read properly.")
 
-    print(f"Extracted {len(all_rows)} rows.")
     return all_rows
 
 
