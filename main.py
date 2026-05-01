@@ -59,19 +59,33 @@ def calculate_internals(m1_list, m2_list) -> Tuple[str, pd.DataFrame]:
     df1 = pd.DataFrame(m1_list).rename(columns={"marks": "mid1"})
     df2 = pd.DataFrame(m2_list).rename(columns={"marks": "mid2"})
 
-    df = pd.merge(df1[["roll_no", "name", "mid1"]],
-                  df2[["roll_no", "mid2"]],
-                  on="roll_no",
-                  how="inner")
+    # 🔥 OUTER JOIN (handles missing students)
+    df = pd.merge(
+        df1[["roll_no", "name", "mid1"]],
+        df2[["roll_no", "mid2"]],
+        on="roll_no",
+        how="outer"
+    )
 
+    # Fill missing names (if any)
+    df["name"] = df["name"].fillna("Unknown")
+
+    # Convert marks
     df["mid1"] = df["mid1"].apply(parse_mark)
     df["mid2"] = df["mid2"].apply(parse_mark)
 
+    # Calculate final
     df["final_internal"] = df.apply(
         lambda r: (min(r["mid1"], r["mid2"]) * 0.2) +
                   (max(r["mid1"], r["mid2"]) * 0.8),
         axis=1
     )
+
+    # 🔥 Round values
+    df["final_internal"] = df["final_internal"].round(2)
+
+    # 🔥 Sort by roll number
+    df = df.sort_values(by="roll_no")
 
     output_path = os.path.join("output", "Final_Internal_Marks.xlsx")
     df.to_excel(output_path, index=False)
@@ -81,6 +95,9 @@ def calculate_internals(m1_list, m2_list) -> Tuple[str, pd.DataFrame]:
 
 # 5. EMAIL
 def send_email_to_cr(file_path: str):
+    if not EMAIL_USER or not EMAIL_PASS:
+        raise ValueError("Email credentials missing. Check .env file.")
+
     msg = MIMEMultipart()
     msg["Subject"] = "Internal Marks Update - Mid 1 & 2"
     msg["From"], msg["To"] = EMAIL_USER, CR_EMAIL
@@ -89,8 +106,10 @@ def send_email_to_cr(file_path: str):
         part = MIMEBase("application", "octet-stream")
         part.set_payload(f.read())
         encoders.encode_base64(part)
-        part.add_header("Content-Disposition",
-                        f"attachment; filename={os.path.basename(file_path)}")
+        part.add_header(
+            "Content-Disposition",
+            f"attachment; filename={os.path.basename(file_path)}"
+        )
         msg.attach(part)
 
     with smtplib.SMTP("smtp.gmail.com", 587) as server:
@@ -105,7 +124,6 @@ def send_email_to_cr(file_path: str):
 if __name__ == "__main__":
     os.makedirs("output", exist_ok=True)
 
-    # 🔥 Paste your ChatGPT output here
     mid1_text = """
     Roll Number | Name      | Marks
     --------------------------------
@@ -136,5 +154,10 @@ if __name__ == "__main__":
     print("\nGenerated Report:")
     print(df.to_string(index=False))
 
-    # Send email
-    send_email_to_cr(report)
+    #  Confirmation before sending
+    choice = input("\nSend email to CR? (y/n): ")
+
+    if choice.lower() == 'y':
+        send_email_to_cr(report)
+    else:
+        print(" Email skipped.")
