@@ -7,15 +7,21 @@ from dotenv import load_dotenv
 from email import encoders
 from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 
 # Load env
 load_dotenv()
 EMAIL_USER = os.getenv("EMAIL_USER")
 EMAIL_PASS = os.getenv("EMAIL_PASS")
-CR_EMAIL = os.getenv("CR_EMAIL")
 
+# CR mapping (edit as needed)
+CR_EMAILS = {
+    "CSE-A": os.getenv("CR_CSE_A"),
+    "CSE-B": os.getenv("CR_CSE_B"),
+    "ECE-A": os.getenv("CR_ECE_A"),
+}
 
-#clean the text table and convert to list of dicts.
+# ---------- FUNCTIONS ----------
 
 def parse_text_table(text):
     lines = text.strip().split("\n")
@@ -37,7 +43,7 @@ def parse_text_table(text):
 
     return data
 
-#handling absent marks and non-numeric values by converting them to 0. 
+
 def parse_mark(value):
     if not value or str(value).lower() == "ab":
         return 0
@@ -46,7 +52,7 @@ def parse_mark(value):
     except:
         return 0
 
-#calculate final internals based on the given formula and save to excel.
+
 def calculate(m1, m2):
     df1 = pd.DataFrame(m1).rename(columns={"marks": "mid1"})
     df2 = pd.DataFrame(m2).rename(columns={"marks": "mid2"})
@@ -76,13 +82,30 @@ def calculate(m1, m2):
 
     return df, file_path
 
-#send an email to the CR with the generated report as an attachment.
-def send_email(file_path):
-    msg = MIMEMultipart()
-    msg["Subject"] = "Internal Marks Report"
-    msg["From"] = EMAIL_USER
-    msg["To"] = CR_EMAIL
 
+# 🔥 UPDATED EMAIL FUNCTION
+def send_email(file_path, class_name, subject_name):
+    msg = MIMEMultipart()
+
+    msg["Subject"] = f"{subject_name} Internal Marks - {class_name}"
+    msg["From"] = EMAIL_USER
+    msg["To"] = CR_EMAILS[class_name]
+
+    # Email body
+    body = f"""
+Hello,
+
+Please find attached the internal marks report.
+
+Subject: {subject_name}
+Class: {class_name}
+
+Regards,
+Faculty
+"""
+    msg.attach(MIMEText(body, "plain"))
+
+    # Attachment
     with open(file_path, "rb") as f:
         part = MIMEBase("application", "octet-stream")
         part.set_payload(f.read())
@@ -96,25 +119,33 @@ def send_email(file_path):
         server.send_message(msg)
 
 
-#UI with Streamlit
+# ---------- UI ----------
 
 st.title("Internal Marks Processor")
+
+#  NEW UI ELEMENTS
+selected_class = st.selectbox("Select Class", list(CR_EMAILS.keys()))
+subject_name = st.text_input("Enter Subject Name")
 
 mid1 = st.text_area("Paste Mid 1 Data")
 mid2 = st.text_area("Paste Mid 2 Data")
 
-#  Generate Report
+
+# 👉 Generate Report
 if st.button("Generate Report"):
-    m1 = parse_text_table(mid1)
-    m2 = parse_text_table(mid2)
+    if not subject_name:
+        st.error("Please enter subject name")
+    else:
+        m1 = parse_text_table(mid1)
+        m2 = parse_text_table(mid2)
 
-    df, file_path = calculate(m1, m2)
+        df, file_path = calculate(m1, m2)
 
-    st.session_state["df"] = df
-    st.session_state["file_path"] = file_path
+        st.session_state["df"] = df
+        st.session_state["file_path"] = file_path
 
 
-#  Show result (persistent)
+# 👉 Show result (persistent)
 if "df" in st.session_state:
     df = st.session_state["df"]
     file_path = st.session_state["file_path"]
@@ -122,7 +153,6 @@ if "df" in st.session_state:
     st.success("Report Generated!")
     st.dataframe(df)
 
-   
     with open(file_path, "rb") as f:
         st.download_button(
             "Download Excel",
@@ -130,7 +160,7 @@ if "df" in st.session_state:
             file_name=file_path
         )
 
-    #  Email button (separate)
+    # 👉 Email button
     if st.button("Send Email"):
-        send_email(file_path)
-        st.success("✅ Email Sent!")
+        send_email(file_path, selected_class, subject_name)
+        st.success(f"✅ Email sent to {CR_EMAILS[selected_class]}")
